@@ -1,6 +1,8 @@
 import streamlit as st
 import random
 import time
+import requests
+import json
 
 # 页面配置
 st.set_page_config(
@@ -38,9 +40,167 @@ st.markdown("<h3 style='text-align: center; color: #d35400;'>仓鼠大法官在�
 # API配置（侧边栏）
 with st.sidebar:
     st.header("🔧 API 配置")
-    api_key = st.text_input("Qwen API Key (可选)", type="password")
-    api_url = st.text_input("API 地址", value="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
-    st.info("💡 暂时使用模拟模式")
+    
+    # API模式选择
+    api_mode = st.radio(
+        "选择运行模式",
+        ["模拟模式", "AI模式"],
+        help="模拟模式使用随机算法，AI模式使用大语言模型进行智能判断"
+    )
+    
+    if api_mode == "AI模式":
+        st.markdown("### API设置")
+        api_provider = st.selectbox(
+            "API提供商",
+            ["通义千问 (Qwen)", "OpenAI", "自定义"],
+            help="选择你使用的AI服务提供商"
+        )
+        
+        if api_provider == "通义千问 (Qwen)":
+            api_key = st.text_input(
+                "API Key", 
+                type="password",
+                help="在阿里云控制台获取: https://dashscope.console.aliyun.com/apiKey"
+            )
+            api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+            model_name = st.text_input("模型名称", value="qwen-plus", help="可选: qwen-plus, qwen-turbo, qwen-max")
+        elif api_provider == "OpenAI":
+            api_key = st.text_input("API Key", type="password")
+            api_url = "https://api.openai.com/v1/chat/completions"
+            model_name = st.text_input("模型名称", value="gpt-3.5-turbo")
+        else:  # 自定义
+            api_key = st.text_input("API Key", type="password")
+            api_url = st.text_input("API 地址", value="https://api.example.com/v1/chat/completions")
+            model_name = st.text_input("模型名称", value="gpt-3.5-turbo")
+        
+        # 判断依据配置
+        st.markdown("---")
+        st.markdown("### ⚖️ 判断依据配置")
+        
+        use_custom_criteria = st.checkbox("使用自定义判断标准", value=False)
+        
+        if use_custom_criteria:
+            custom_criteria = st.text_area(
+                "自定义判断标准",
+                value="""请根据以下标准进行评判：
+1. 沟通有效性（30%）：表达是否清晰、理性
+2. 情感合理性（25%）：诉求是否合情合理
+3. 责任意识（25%）：是否愿意承担责任和改进
+4. 尊重程度（20%）：对对方的尊重和理解程度
+
+请给出：
+- 甲方得分（0-100）
+- 乙方得分（0-100）
+- 详细分析
+- 建议""",
+                height=200,
+                help="这将作为AI判断的依据"
+            )
+        else:
+            custom_criteria = None
+    else:
+        st.info("💡 当前使用模拟模式")
+        api_key = None
+        api_url = None
+        model_name = None
+        custom_criteria = None
+
+# AI调用函数
+def call_ai_api(party_a_text, party_b_text, api_key, api_url, model_name, criteria=None):
+    """调用AI API进行裁决"""
+    try:
+        # 构建提示词
+        if criteria:
+            system_prompt = f"""你是一位公正、专业的情侣关系调解专家——仓鼠大法官。
+            
+{criteria}
+
+请严格按照以上标准进行评判，给出客观、公正的分析。"""
+        else:
+            system_prompt = """你是一位公正、专业的情侣关系调解专家——仓鼠大法官。
+
+请根据以下标准评判双方的理据充分度：
+1. 沟通有效性（30%）：表达是否清晰、理性
+2. 情感合理性（25%）：诉求是否合情合理  
+3. 责任意识（25%）：是否愿意承担责任和改进
+4. 尊重程度（20%）：对对方的尊重和理解程度
+
+请按以下格式输出：
+【甲方得分】：X分（0-100）
+【乙方得分】：Y分（0-100）
+【详细分析】：
+（分析内容）
+【调解建议】：
+（建议内容）"""
+
+        user_prompt = f"""【甲方陈述】
+{party_a_text}
+
+【乙方陈述】
+{party_b_text}
+
+请对此纠纷进行公正裁决。"""
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        data = {
+            "model": model_name,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.7
+        }
+        
+        response = requests.post(api_url, headers=headers, json=data, timeout=30)
+        response.raise_for_status()
+        
+        result = response.json()
+        ai_response = result['choices'][0]['message']['content']
+        
+        # 解析AI响应
+        return parse_ai_response(ai_response)
+        
+    except Exception as e:
+        st.error(f"❌ AI调用失败: {str(e)}")
+        return None
+
+def parse_ai_response(response_text):
+    """解析AI返回的结果"""
+    try:
+        # 简单的解析逻辑
+        lines = response_text.split('\n')
+        score_a = 50
+        score_b = 50
+        analysis = response_text
+        
+        # 尝试提取分数
+        for line in lines:
+            if '甲方得分' in line or '甲方：' in line:
+                import re
+                match = re.search(r'(\d+)', line)
+                if match:
+                    score_a = int(match.group(1))
+            elif '乙方得分' in line or '乙方：' in line:
+                import re
+                match = re.search(r'(\d+)', line)
+                if match:
+                    score_b = int(match.group(1))
+        
+        return {
+            'score_a': score_a,
+            'score_b': score_b,
+            'analysis': analysis
+        }
+    except:
+        return {
+            'score_a': 50,
+            'score_b': 50,
+            'analysis': response_text
+        }
 
 # 输入区域
 st.markdown("---")
@@ -71,11 +231,28 @@ if st.button("⚖️ 提交裁决", use_container_width=True):
     else:
         # 显示加载动画
         with st.spinner("仓鼠法官正在认真审理中..."):
-            time.sleep(2)  # 模拟处理时间
+            if api_mode == "AI模式" and api_key:
+                # 使用AI进行裁决
+                ai_result = call_ai_api(party_a, party_b, api_key, api_url, model_name, custom_criteria)
+                
+                if ai_result:
+                    score_a = ai_result['score_a']
+                    score_b = ai_result['score_b']
+                    ai_analysis = ai_result['analysis']
+                else:
+                    # API失败时降级到模拟模式
+                    st.warning("⚠️ AI调用失败，使用模拟模式")
+                    score_a = len(party_a) + random.randint(30, 50)
+                    score_b = len(party_b) + random.randint(30, 50)
+                    ai_analysis = None
+            else:
+                # 模拟模式
+                time.sleep(2)  # 模拟处理时间
+                score_a = len(party_a) + random.randint(30, 50)
+                score_b = len(party_b) + random.randint(30, 50)
+                ai_analysis = None
             
-            # 简单的评分逻辑
-            score_a = len(party_a) + random.randint(30, 50)
-            score_b = len(party_b) + random.randint(30, 50)
+            # 计算百分比
             total = score_a + score_b
             percent_a = round((score_a / total) * 100)
             percent_b = 100 - percent_a
@@ -106,10 +283,51 @@ if st.button("⚖️ 提交裁决", use_container_width=True):
         
         # 裁决书
         st.markdown("### 📜 详细裁决书")
-        verdict = f"""
+        
+        if ai_analysis:
+            # 使用AI分析结果
+            verdict = f"""
 **【案情编号】**：HC-{int(time.time())}  
 **【裁决日期】**：{time.strftime('%Y年%m月%d日')}  
-**【主审法官】**：仓鼠大法官 🐹
+**【主审法官】**：仓鼠大法官 🐹  
+**【裁决模式】**：AI智能裁决
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**一、案情概述**
+
+本案系一起情侣纠纷案件。甲乙双方存在分歧，特向本庭申请裁决。
+
+**二、双方陈述**
+
+【甲方陈述】  
+{party_a}
+
+【乙方陈述】  
+{party_b}
+
+**三、AI法官分析与裁决**
+
+{ai_analysis}
+
+**四、最终评分**
+
+• 甲方得分：{score_a}分（占比{percent_a}%）  
+• 乙方得分：{score_b}分（占比{percent_b}%）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+此致  
+仓鼠法庭 🐹⚖️  
+{time.strftime('%Y-%m-%d %H:%M:%S')}
+            """
+        else:
+            # 使用模拟模式结果
+            verdict = f"""
+**【案情编号】**：HC-{int(time.time())}  
+**【裁决日期】**：{time.strftime('%Y年%m月%d日')}  
+**【主审法官】**：仓鼠大法官 🐹  
+**【裁决模式】**：模拟裁决
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -147,7 +365,8 @@ if st.button("⚖️ 提交裁决", use_container_width=True):
 此致  
 仓鼠法庭 🐹⚖️  
 {time.strftime('%Y-%m-%d %H:%M:%S')}
-        """
+            """
+        
         st.info(verdict)
 
 # 页脚

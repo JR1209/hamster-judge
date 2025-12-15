@@ -4,6 +4,21 @@ import time
 import requests
 import json
 
+# ========================================
+# 🔑 API配置区域（使用Streamlit Secrets）
+# ========================================
+# 从Streamlit Secrets读取API配置
+# 本地运行：在 .streamlit/secrets.toml 中配置
+# 云端部署：在Streamlit Cloud后台配置
+try:
+    QWEN_API_KEY = st.secrets.get("QWEN_API_KEY", "")
+except:
+    QWEN_API_KEY = ""
+    
+QWEN_API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+QWEN_MODEL = "qwen-plus"  # 可选: qwen-turbo, qwen-plus, qwen-max
+# ========================================
+
 # 页面配置
 st.set_page_config(
     page_title="仓鼠法官裁决系统",
@@ -39,7 +54,7 @@ st.markdown("<h3 style='text-align: center; color: #d35400;'>仓鼠大法官在�
 
 # API配置（侧边栏）
 with st.sidebar:
-    st.header("🔧 API 配置")
+    st.header("⚖️ 裁决设置")
     
     # API模式选择
     api_mode = st.radio(
@@ -49,29 +64,17 @@ with st.sidebar:
     )
     
     if api_mode == "AI模式":
-        st.markdown("### API设置")
-        api_provider = st.selectbox(
-            "API提供商",
-            ["通义千问 (Qwen)", "OpenAI", "自定义"],
-            help="选择你使用的AI服务提供商"
-        )
+        # 使用代码中配置的API
+        api_key = QWEN_API_KEY
+        api_url = QWEN_API_URL
+        model_name = QWEN_MODEL
         
-        if api_provider == "通义千问 (Qwen)":
-            api_key = st.text_input(
-                "API Key", 
-                type="password",
-                help="在阿里云控制台获取: https://dashscope.console.aliyun.com/apiKey"
-            )
-            api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-            model_name = st.text_input("模型名称", value="qwen-plus", help="可选: qwen-plus, qwen-turbo, qwen-max")
-        elif api_provider == "OpenAI":
-            api_key = st.text_input("API Key", type="password")
-            api_url = "https://api.openai.com/v1/chat/completions"
-            model_name = st.text_input("模型名称", value="gpt-3.5-turbo")
-        else:  # 自定义
-            api_key = st.text_input("API Key", type="password")
-            api_url = st.text_input("API 地址", value="https://api.example.com/v1/chat/completions")
-            model_name = st.text_input("模型名称", value="gpt-3.5-turbo")
+        # 检查API Key是否配置
+        if not api_key or api_key == "sk-94e03e82bf0b4d4cbbc74e022e3582cd":
+            st.warning("⚠️ 请先在代码中配置新的API Key！")
+            st.info("💡 提示：\n1. 删除泄露的旧Key\n2. 生成新Key\n3. 在代码顶部修改 QWEN_API_KEY")
+        else:
+            st.success(f"✅ 已配置API：使用 {model_name} 模型")
         
         # 判断依据配置
         st.markdown("---")
@@ -99,7 +102,7 @@ with st.sidebar:
         else:
             custom_criteria = None
     else:
-        st.info("💡 当前使用模拟模式")
+        st.info("💡 当前使用模拟模式（娱乐性质）")
         api_key = None
         api_url = None
         model_name = None
@@ -326,7 +329,7 @@ if st.button("⚖️ 提交裁决", use_container_width=True):
             verdict = f"""
 **【案情编号】**：HC-{int(time.time())}  
 **【裁决日期】**：{time.strftime('%Y年%m月%d日')}  
-**【主审法官】**：仓鼠大法官 🐹  
+**【主审法官】**：仓鼠大法官 🐹
 **【裁决模式】**：模拟裁决
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -365,7 +368,7 @@ if st.button("⚖️ 提交裁决", use_container_width=True):
 此致  
 仓鼠法庭 🐹⚖️  
 {time.strftime('%Y-%m-%d %H:%M:%S')}
-            """
+        """
         
         st.info(verdict)
 
